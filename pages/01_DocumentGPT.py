@@ -12,8 +12,8 @@ st.set_page_config(
 )
 
 # a function that return an embedded retriever
-
-
+# Use 'cache_data' decorator not to run the function again if the file is the same as earlier
+@st.cache_data(show_spinner="Embedding file...")
 def embed_file(file):
     file_content = file.read()
     file_path = f"./.cache/files/{file.name}"
@@ -31,7 +31,7 @@ def embed_file(file):
         length_function=len,
         # LLM does not count token by the length of text.
     )
-    loader = UnstructuredFileLoader("./files/chapter_one.txt")
+    loader = UnstructuredFileLoader(file_path)
     docs = loader.load_and_split(text_splitter=char_splitter)
     embedder = OpenAIEmbeddings()
     cached_embeddings = CacheBackedEmbeddings.from_bytes_store(
