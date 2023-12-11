@@ -13,6 +13,8 @@ st.set_page_config(
 
 # a function that return an embedded retriever
 # Use 'cache_data' decorator not to run the function again if the file is the same as earlier
+
+
 @st.cache_data(show_spinner="Embedding file...")
 def embed_file(file):
     file_content = file.read()
@@ -42,6 +44,20 @@ def embed_file(file):
     return retriever
 
 
+def send_message(message, role, save=True):
+    with st.chat_message(role):
+        st.markdown(message)
+    if save:
+        # Note that the messages are stored in a dictionary form
+        st.session_state["messages"].append(
+            {"message": message, "role": role})
+
+
+def paint_history():
+    for message in st.session_state["messages"]:
+        send_message(message["message"], message["role"], save=False)
+
+
 st.title("DocumentGPT")
 
 # Ask users to upload documents
@@ -50,12 +66,23 @@ st.markdown(
     Welcome!
     
     Use this chatbot to ask questions to your AI about your documents
+    
+    Upload your files on the sidebar.
     """)
 # create a file uploader
-file = st.file_uploader("Upload a .txt .pdf or .docx file", type=[
-                        "pdf", "txt", "docx"])
+with st.sidebar:
+    file = st.file_uploader("Upload a .txt .pdf or .docx file", type=[
+        "pdf", "txt", "docx"])
 
 if file:
+    # if file exists, retrieve and start creating messages.
     retriever = embed_file(file)
-    s =retriever.invoke("Adam")
-    s
+    send_message("I am ready. Ask away", "ai", save=False)
+    paint_history()
+    message = st.chat_input("Ask anything about your file...")
+    if message:
+        send_message(message, "human")
+        send_message("this is a fake message", "ai")
+else:
+    # When there is no file, initialize the session
+    st.session_state["messages"] = []
