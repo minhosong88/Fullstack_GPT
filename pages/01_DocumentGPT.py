@@ -1,4 +1,5 @@
 import streamlit as st
+from langchain.prompts import ChatPromptTemplate
 from langchain.document_loaders import UnstructuredFileLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.storage import LocalFileStore
@@ -58,6 +59,15 @@ def paint_history():
         send_message(message["message"], message["role"], save=False)
 
 
+template = ChatPromptTemplate.from_messages([
+    ("system",
+     """
+     Answer the question using ONLY the following context. If you don't know the answer, just say you don't know. DO NOT MAKE UP anything.
+     Context:{context}
+     """),
+    ("human", "{question}")
+])
+
 st.title("DocumentGPT")
 
 # Ask users to upload documents
@@ -82,7 +92,13 @@ if file:
     message = st.chat_input("Ask anything about your file...")
     if message:
         send_message(message, "human")
-        send_message("this is a fake message", "ai")
+        docs = retriever.invoke(message)
+        st.write(docs)
+        # join the documents into one string
+        docs = "\n\n".join(document.page_content for document in docs)
+        prompt = template.format_messages(context=docs, question=message)
+        st.write(prompt)
+
 else:
     # When there is no file, initialize the session
     st.session_state["messages"] = []
