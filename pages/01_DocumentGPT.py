@@ -3,13 +3,19 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.document_loaders import UnstructuredFileLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.storage import LocalFileStore
+from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
 from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
 from langchain.vectorstores.faiss import FAISS
+from langchain.chat_models import ChatOpenAI
 from dotenv import dotenv_values
 
 st.set_page_config(
     page_title="FullStackGPT DocumentGPT",
     page_icon="📄",
+)
+
+llm = ChatOpenAI(
+    temperature=0.1,
 )
 
 # a function that return an embedded retriever
@@ -59,7 +65,11 @@ def paint_history():
         send_message(message["message"], message["role"], save=False)
 
 
-template = ChatPromptTemplate.from_messages([
+def format_docs(docs):
+    return "\n\n".join(document.page_content for document in docs)
+
+
+prompt = ChatPromptTemplate.from_messages([
     ("system",
      """
      Answer the question using ONLY the following context. If you don't know the answer, just say you don't know. DO NOT MAKE UP anything.
@@ -92,13 +102,13 @@ if file:
     message = st.chat_input("Ask anything about your file...")
     if message:
         send_message(message, "human")
-        docs = retriever.invoke(message)
-        st.write(docs)
-        # join the documents into one string
-        docs = "\n\n".join(document.page_content for document in docs)
-        prompt = template.format_messages(context=docs, question=message)
-        st.write(prompt)
-
+        # Here, search for document(retriever), format the document(RunnableLambda(format_docs), RunnablePassthrough()=message), format the prompt(prompt), send the prompt to llm(llm)
+        chain = {
+            "context": retriever | RunnableLambda(format_docs),
+            "question": RunnablePassthrough()
+        } | prompt | llm
+        response = chain.invoke(message)
+        send_message(response.content, "ai")
 else:
     # When there is no file, initialize the session
     st.session_state["messages"] = []
