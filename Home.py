@@ -11,7 +11,7 @@ st.markdown(
     # Hello!
     Welcome to my FullstackGPT Portfolio
     Here are the apps I made:
-    - [ ] [DocumentGPT](/DocumentGPT)
+    - [x] [DocumentGPT](/DocumentGPT)
     - [ ] [QuizGPT](/QuizGPT)
     - [ ] [PrivateGPT](/PrivateGPT)
     - [ ] [SiteGPT](/SiteGPT)

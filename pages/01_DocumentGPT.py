@@ -1,3 +1,6 @@
+from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
+from langchain.schema.output import ChatGenerationChunk, GenerationChunk
 import streamlit as st
 from langchain.prompts import ChatPromptTemplate
 from langchain.document_loaders import UnstructuredFileLoader
@@ -7,21 +10,47 @@ from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
 from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
 from langchain.vectorstores.faiss import FAISS
 from langchain.chat_models import ChatOpenAI
-from dotenv import dotenv_values
+from langchain.callbacks.base import BaseCallbackHandler
 
 st.set_page_config(
     page_title="FullStackGPT DocumentGPT",
     page_icon="📄",
 )
 
+# Define a class for callback functions
+
+
+class ChatCallbackHandler(BaseCallbackHandler):
+    # Initialize a message variable
+    message =""
+    # When llm starts, an empty boc is created
+    def on_llm_start(self, *args, **kwargs):
+        self.message_box = st.empty()
+
+    # When llm ends, save the created message
+    def on_llm_end(self, *args, **kwargs):
+        save_message(self.message, "ai")
+
+
+    # Each new token generated, the function is called
+    def on_llm_new_token(self, token, *args, **kwargs):
+        # append each token to the message variable
+        self.message += token
+        # each message appened will be shown to the message box
+        self.message_box.markdown(self.message)
+
+# Define LLM
 llm = ChatOpenAI(
     temperature=0.1,
+    streaming=True,
+    callbacks=[
+        ChatCallbackHandler(),
+    ]
 )
+
 
 # a function that return an embedded retriever
 # Use 'cache_data' decorator not to run the function again if the file is the same as earlier
-
-
 @st.cache_data(show_spinner="Embedding file...")
 def embed_file(file):
     file_content = file.read()
@@ -50,16 +79,20 @@ def embed_file(file):
     retriever = vectorstore.as_retriever()
     return retriever
 
+def save_message(message, role):
+            st.session_state["messages"].append(
+            {"message": message, "role": role}
+            )
 
 def send_message(message, role, save=True):
+    # shows messages in the beginning, and save them
     with st.chat_message(role):
         st.markdown(message)
     if save:
         # Note that the messages are stored in a dictionary form
-        st.session_state["messages"].append(
-            {"message": message, "role": role})
-
-
+        save_message(message, role)
+        
+# Displaying messages without saving them: display saved messages
 def paint_history():
     for message in st.session_state["messages"]:
         send_message(message["message"], message["role"], save=False)
@@ -89,7 +122,7 @@ st.markdown(
     
     Upload your files on the sidebar.
     """)
-# create a file uploader
+# create a file uploader in a side bar
 with st.sidebar:
     file = st.file_uploader("Upload a .txt .pdf or .docx file", type=[
         "pdf", "txt", "docx"])
@@ -105,10 +138,11 @@ if file:
         # Here, search for document(retriever), format the document(RunnableLambda(format_docs), RunnablePassthrough()=message), format the prompt(prompt), send the prompt to llm(llm)
         chain = {
             "context": retriever | RunnableLambda(format_docs),
+            # sending the question straight to the prompt
             "question": RunnablePassthrough()
         } | prompt | llm
-        response = chain.invoke(message)
-        send_message(response.content, "ai")
+        with st.chat_message("ai"):
+            chain.invoke(message)
 else:
-    # When there is no file, initialize the session
+    # When there is no file(like in the beginning), initialize the session with a blank list
     st.session_state["messages"] = []
