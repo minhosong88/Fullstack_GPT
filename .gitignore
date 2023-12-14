@@ -3,4 +3,5 @@ env/
 files/
 .cache/
 .streamlit
-Langchain practice.ipynb
+*.ipynb
+falcon.bin
