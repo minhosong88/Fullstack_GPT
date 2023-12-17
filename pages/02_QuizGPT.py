@@ -1,12 +1,28 @@
 import streamlit as st
+import json
 from langchain.retrievers import WikipediaRetriever
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.document_loaders import UnstructuredFileLoader
 from langchain.chat_models import ChatOpenAI
 from langchain.callbacks import StreamingStdOutCallbackHandler
 from langchain.prompts import ChatPromptTemplate
+from langchain.schema import BaseOutputParser
 
+
+class JsonOutputParser(BaseOutputParser):
+    def parse(self, text: str):
+        text = text.replace("```", "").replace("json", "")
+        return json.loads(text)
+
+
+output_parser = JsonOutputParser()
+
+st.set_page_config(
+    page_title="FullStackGPT QuizGPT",
+    page_icon="💯",
+)
 st.title("QuizGPT")
+
 
 llm = ChatOpenAI(
     temperature=0.1,
@@ -51,7 +67,7 @@ questions_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-question_chain = {
+questions_chain = {
     # when invoke method takes docs, docs will be an argument of format_docs function, the result of which will be a string.
     "context": format_docs
 } | questions_prompt | llm
@@ -240,11 +256,8 @@ else:
 
     start = st.button("Generate Quiz")
     if start:
-        questions_response = question_chain.invoke(docs)
-        st.write(questions_response)
-        formatting_response = formatting_chain.invoke(
-            {
-                "context": questions_response.content
-            }
-        )
-        st.write(formatting_response.content)
+
+        chain = {"context": questions_chain} | formatting_chain | output_parser
+
+        response = chain.invoke(docs)
+        st.write(response)
