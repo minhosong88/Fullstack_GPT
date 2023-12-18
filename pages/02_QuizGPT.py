@@ -11,7 +11,9 @@ from langchain.schema import BaseOutputParser
 
 class JsonOutputParser(BaseOutputParser):
     def parse(self, text: str):
+        # remove unwanted characters
         text = text.replace("```", "").replace("json", "")
+        # return a python object
         return json.loads(text)
 
 
@@ -73,7 +75,8 @@ questions_chain = {
 } | questions_prompt | llm
 
 formatting_prompt = ChatPromptTemplate.from_messages([
-    # by using {{ for prompt, avoid formating the prompt
+    # by using {{ for prompt, avoid confusion for taking it as a template variable
+    # using '```json ~~~```' blocks additional conversation
     ("system",
      """
      You are a powerful formatting algorithm.
@@ -215,6 +218,22 @@ def split_file(file):
     return docs
 
 
+@st.cache_data(show_spinner="Making quiz...")
+# adding '_' says not to make a signature of docs. The functoin runs only once  gets the same results without additional parameters
+# adding another parameter allows running function again when documents change
+def run_quiz_chain(_docs, topic):
+    chain = {"context": questions_chain} | formatting_chain | output_parser
+    return chain.invoke(_docs)
+
+
+@st.cache_data(show_spinner="Searching Wikipedia...")
+def wiki_search(input):
+    # You can change language by adding "lang=" at retriever
+    retriever = WikipediaRetriever(top_k_results=5)
+    docs = retriever.get_relevant_documents(input)
+    return docs
+
+
 with st.sidebar:
     # Initialize docs variable
     docs = None
@@ -236,11 +255,7 @@ with st.sidebar:
     else:
         topic = st.text_input("Search Wikipedia articles:")
         if topic:
-            # You can change language by adding "lang=" at retriever
-            retriever = WikipediaRetriever(top_k_results=5)
-            with st.status("Searching Wikipedia"):
-                docs = retriever.get_relevant_documents(topic)
-
+            docs = wiki_search(topic)
 # Initialize a front page
 if not docs:
     st.markdown(
@@ -256,8 +271,5 @@ else:
 
     start = st.button("Generate Quiz")
     if start:
-
-        chain = {"context": questions_chain} | formatting_chain | output_parser
-
-        response = chain.invoke(docs)
+        response = run_quiz_chain(docs, topic if topic else file.name)
         st.write(response)
