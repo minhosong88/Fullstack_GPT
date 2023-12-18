@@ -5,19 +5,7 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.document_loaders import UnstructuredFileLoader
 from langchain.chat_models import ChatOpenAI
 from langchain.callbacks import StreamingStdOutCallbackHandler
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema import BaseOutputParser
-
-
-class JsonOutputParser(BaseOutputParser):
-    def parse(self, text: str):
-        # remove unwanted characters
-        text = text.replace("```", "").replace("json", "")
-        # return a python object
-        return json.loads(text)
-
-
-output_parser = JsonOutputParser()
+from langchain.prompts import PromptTemplate
 
 st.set_page_config(
     page_title="FullStackGPT QuizGPT",
@@ -25,6 +13,43 @@ st.set_page_config(
 )
 st.title("QuizGPT")
 
+quiz_schema = {
+    "name": "generate_quiz",
+    "description": "function that takes a list of questions and answers, then returns a quiz",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                        },
+                        "answers": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "answer": {
+                                        "type": "string",
+                                    },
+                                    "correct": {
+                                        "type": "boolean",
+                                    },
+                                },
+                                "required": ["answer", "correct"]
+                            },
+                        },
+                    },
+                    "required": ["question", "answers"]
+                },
+            }
+        },
+    },
+    "required": ["questions"],
+}
 
 llm = ChatOpenAI(
     temperature=0.1,
@@ -33,6 +58,13 @@ llm = ChatOpenAI(
     callbacks=[
         StreamingStdOutCallbackHandler()
     ],
+).bind(
+    function_call={
+        "name": "generate_quiz",
+    },
+    functions=[
+        quiz_schema,
+    ]
 )
 
 
@@ -40,162 +72,13 @@ def format_docs(docs):
     return "\n\n".join(document.page_content for document in docs)
 
 
-questions_prompt = ChatPromptTemplate.from_messages(
-    [   # Examples are formed to show AI that the answer could be either first, second, third or fourth. TO give all possibilities
-        ("system", """
-            You are a helpful assistant that is role playing as a teacher.
-            Based ONLY on the following context make 10 questions to test the user's knowledge about the text.
-            Each question should have 4 answers, three of them must be incorrect and one should be correct.
-            
-            Use (o) to signal the correct answer.
-            
-            Question examples:
-            Question: What is the color of the ocean?
-            Answers: Red| Yellow| Green| Blue(o)
-            
-            Question: What is the capital of Georgia?
-            Answers: Baku| Tbilisi(o)| Manilla| Beirut
-            
-            Question: When was Avatar released?
-            Answers: 2007| 2008| 2009(o)| 1998
-            
-            Question: WHo was Julius Caesar?
-            Answers: A Roman Emperor(o)| Painter| Actor| Model
-            
-            Your turn!
-            
-            Context: {context}
-            """),
-    ]
-)
+questions_prompt = PromptTemplate.from_template(
+    "Based ONLY on the following context make 10 questions to test the user's knowledge about the text. Each question should have 4 answers, three of them must be incorrect and one should be correct. Context: {context}")
 
 questions_chain = {
     # when invoke method takes docs, docs will be an argument of format_docs function, the result of which will be a string.
     "context": format_docs
 } | questions_prompt | llm
-
-formatting_prompt = ChatPromptTemplate.from_messages([
-    # by using {{ for prompt, avoid confusion for taking it as a template variable
-    # using '```json ~~~```' blocks additional conversation
-    ("system",
-     """
-     You are a powerful formatting algorithm.
-     
-     You format exam questions into JSON formtat.
-     Answers with (o) are the correct answers.
-     
-     Example input:
-     Question examples:
-            Question: What is the color of the ocean?
-            Answers: Red| Yellow| Green| Blue(o)
-            
-            Question: What is the capital of Georgia?
-            Answers: Baku| Tbilisi(o)| Manilla| Beirut
-            
-            Question: When was Avatar released?
-            Answers: 2007| 2008| 2009(o)| 1998
-            
-            Question: WHo was Julius Caesar?
-            Answers: A Roman Emperor(o)| Painter| Actor| Model
-    Example Output:
-     
-    ```json
-    {{ "questions": [
-            {{
-                "question": "What is the color of the ocean?",
-                "answers": [
-                        {{
-                            "answer": "Red",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "Yellow",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "Green",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "Blue",
-                            "correct": true
-                        }},
-                ]
-            }},
-                        {{
-                "question": "What is the capital or Georgia?",
-                "answers": [
-                        {{
-                            "answer": "Baku",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "Tbilisi",
-                            "correct": true
-                        }},
-                        {{
-                            "answer": "Manila",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "Beirut",
-                            "correct": false
-                        }},
-                ]
-            }},
-                        {{
-                "question": "When was Avatar released?",
-                "answers": [
-                        {{
-                            "answer": "2007",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "2001",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "2009",
-                            "correct": true
-                        }},
-                        {{
-                            "answer": "1998",
-                            "correct": false
-                        }},
-                ]
-            }},
-            {{
-                "question": "Who was Julius Caesar?",
-                "answers": [
-                        {{
-                            "answer": "A Roman Emperor",
-                            "correct": true
-                        }},
-                        {{
-                            "answer": "Painter",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "Actor",
-                            "correct": false
-                        }},
-                        {{
-                            "answer": "Model",
-                            "correct": false
-                        }},
-                ]
-            }}
-        ]
-     }}
-    ```
-    Your turn!
-
-    Questions: {context}
-        """)
-]
-)
-
-formatting_chain = formatting_prompt | llm
 
 
 @st.cache_data(show_spinner="Loading file...")
@@ -222,8 +105,8 @@ def split_file(file):
 # adding '_' says not to make a signature of docs. The functoin runs only once  gets the same results without additional parameters
 # adding another parameter allows running function again when documents change
 def run_quiz_chain(_docs, topic):
-    chain = {"context": questions_chain} | formatting_chain | output_parser
-    return chain.invoke(_docs)
+    response = questions_chain.invoke(_docs)
+    return response
 
 
 @st.cache_data(show_spinner="Searching Wikipedia...")
@@ -235,8 +118,9 @@ def wiki_search(input):
 
 
 with st.sidebar:
-    # Initialize docs variable
+    # Initialize docs, topic variable
     docs = None
+    topic = None
     # Create a selectbox
     choice = st.selectbox("Choose what you wnat to use", (
         "File", "Wikipedia Article",
@@ -270,11 +154,16 @@ if not docs:
 else:
 
     response = run_quiz_chain(docs, topic if topic else file.name)
+    # For python to deal with the AI message chunk, convert it to json objet.
+    response = json.loads(
+        response.additional_kwargs["function_call"]["arguments"])
     # inside a form, streamlit waits to rerun until submitted
     with st.form("questions_form"):
+
         # Iterate each question in questions dictionary
         for question in response["questions"]:
             # paint options with st.radio. value is the option that the user chooses
+            st.write(question["question"])
             value = st.radio("Select an option.", [answer["answer"]
                                                    for answer in question["answers"]], index=None)
             # checking if selected answer in the answers dictionary
