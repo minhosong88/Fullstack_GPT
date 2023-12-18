@@ -269,7 +269,17 @@ if not docs:
     )
 else:
 
-    start = st.button("Generate Quiz")
-    if start:
-        response = run_quiz_chain(docs, topic if topic else file.name)
-        st.write(response)
+    response = run_quiz_chain(docs, topic if topic else file.name)
+    # inside a form, streamlit waits to rerun until submitted
+    with st.form("questions_form"):
+        # Iterate each question in questions dictionary
+        for question in response["questions"]:
+            # paint options with st.radio. value is the option that the user chooses
+            value = st.radio("Select an option.", [answer["answer"]
+                                                   for answer in question["answers"]], index=None)
+            # checking if selected answer in the answers dictionary
+            if {"answer": value, "correct": True} in question["answers"]:
+                st.success("Correct")
+            elif value is not None:
+                st.error("Wrong")
+        button = st.form_submit_button()
