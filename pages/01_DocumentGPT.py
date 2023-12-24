@@ -20,7 +20,7 @@ st.set_page_config(
 class ChatCallbackHandler(BaseCallbackHandler):
     # Initialize a message variable
     message =""
-    # When llm starts, an empty boc is created
+    # When llm starts, an empty box is created
     def on_llm_start(self, *args, **kwargs):
         self.message_box = st.empty()
 
