@@ -9,10 +9,14 @@ from langchain.callbacks.base import BaseCallbackHandler
 from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
 from langchain.memory import ConversationSummaryBufferMemory
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
 import streamlit as st
-import spacy
+import nltk
+from nltk.tokenize import word_tokenize
 import re
 
+# Download word tokenizing data
+nltk.download('punkt')
 
 # Define a class for callback functions
 class ChatCallbackHandler(BaseCallbackHandler):
@@ -32,9 +36,6 @@ class ChatCallbackHandler(BaseCallbackHandler):
         self.message += token
         # each message appened will be shown to the message box
         self.message_box.markdown(self.message)
-
-# Load English word vector for spacy
-nlp = spacy.load('en_core_web_sm')
 
 # Create an LLM
 answers_llm = ChatOpenAI(
@@ -232,6 +233,7 @@ def paint_history():
 def restore_memory():
     for history in st.session_state["chat_history"]:
         memory.save_context({"input": history["input"]}, {"output": history["output"]})
+        st.write(memory.load_memory_variables({}))
         
 def load_memory(input):
     return memory.load_memory_variables({})["chat_history"]
@@ -243,9 +245,15 @@ def invoke_chain(message):
     save_memory(message, result.content.replace("$", "\$"))
 # Function to calculate similarity between two queries
 def calculate_similarity(new_question, memory_question):
-    new_question = nlp(new_question)
-    memory_question = nlp(memory_question)
-    return cosine_similarity(new_question.vector.reshape(1, -1), memory_question.vector.reshape(1, -1))[0][0]
+    # Tokenize the sentences
+    token1 = word_tokenize(new_question.lower())
+    token2 = word_tokenize(memory_question.lower())
+    # Combine tokens into strings for vectorization
+    text1 = ' '.join(token1)
+    text2 = ' '.join(token2)
+    # Vectorize the texts
+    vectorizer = CountVectorizer().fit_transform([text1, text2])
+    return cosine_similarity(vectorizer)[0][1]
 
 # Function to retrieve answers
 def get_similar_answer(user_query):
@@ -255,14 +263,21 @@ def get_similar_answer(user_query):
     # Placeholder for max similarity
     max_similarity = -1.0
     # Load memory variables
-    memory_variables = memory.load_memory_variables({})
+    chat_history = memory.load_memory_variables({})["chat_history"]
+    st.write(chat_history)
     # Iterate memory to find the most similar query to the user input
-    for stored_query, stored_answer in zip(memory_variables["input"], memory_variables["output"]):
-        similarity = calculate_similarity(user_query, stored_query)
-        if similarity > max_similarity:
+    stored_queries = [query.content for idx, query in enumerate(chat_history) if idx%2 == 0 or idx == 0]
+    stored_answers = [answer.content for idx, answer in enumerate(chat_history) if idx%2 != 0]
+    for stored_entry in zip(stored_queries, stored_answers):
+        stored_query = stored_entry[0]
+        stored_answer = stored_entry[1]
+        if stored_query is not None and stored_answer is not None:
+            similarity = calculate_similarity(user_query, stored_query)
+        if similarity > max_similarity: 
             max_similarity = similarity
             most_similar_question = stored_query
             most_similar_answer = stored_answer
+    # Check for a valid similar question and similarity threshold
     if most_similar_question and max_similarity > 0.7:
         return most_similar_answer
     return None
@@ -291,10 +306,10 @@ if url:
             send_message(query, "human")
             chain = ({"docs": retriever, "chat_history": load_memory, "question": RunnablePassthrough(),} | RunnableLambda(get_answers) | RunnableLambda(choose_answer)
                      )
-            isSimilar = get_similar_answer(query)
+            similar_answer = get_similar_answer(query)
             with st.chat_message("ai"):
-                if isSimilar:
-                    isSimilar
+                if similar_answer:
+                    similar_answer
                 else:    
                     invoke_chain(query)
 else:
