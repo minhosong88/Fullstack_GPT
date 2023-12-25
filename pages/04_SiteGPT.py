@@ -8,7 +8,9 @@ from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
 from langchain.memory import ConversationSummaryBufferMemory
+from sklearn.metrics.pairwise import cosine_similarity
 import streamlit as st
+import spacy
 import re
 
 
@@ -30,6 +32,9 @@ class ChatCallbackHandler(BaseCallbackHandler):
         self.message += token
         # each message appened will be shown to the message box
         self.message_box.markdown(self.message)
+
+# Load English word vector for spacy
+nlp = spacy.load('en_core_web_sm')
 
 # Create an LLM
 answers_llm = ChatOpenAI(
@@ -236,20 +241,42 @@ def invoke_chain(message):
     result = chain.invoke(message)
     # save the interaction in the memory
     save_memory(message, result.content.replace("$", "\$"))
+# Function to calculate similarity between two queries
+def calculate_similarity(new_question, memory_question):
+    new_question = nlp(new_question)
+    memory_question = nlp(memory_question)
+    return cosine_similarity(new_question.vector.reshape(1, -1), memory_question.vector.reshape(1, -1))[0][0]
 
+# Function to retrieve answers
+def get_similar_answer(user_query):
+    # Placeholder for the most similar query
+    most_similar_question = None
+    most_similar_answer = None
+    # Placeholder for max similarity
+    max_similarity = -1.0
+    # Load memory variables
+    memory_variables = memory.load_memory_variables({})
+    # Iterate memory to find the most similar query to the user input
+    for stored_query, stored_answer in zip(memory_variables["input"], memory_variables["output"]):
+        similarity = calculate_similarity(user_query, stored_query)
+        if similarity > max_similarity:
+            max_similarity = similarity
+            most_similar_question = stored_query
+            most_similar_answer = stored_answer
+    if most_similar_question and max_similarity > 0.7:
+        return most_similar_answer
+    return None
+    
 st.title("SiteGPT")
-
-st.markdown(
-    """
-Ask questions about the content of a website.
-
-Start by writing the URL of the website on the sidebar.
-""")
 
 with st.sidebar:
     url = st.text_input("Write down a URL", placeholder="https://example.com")
 
 if url:
+    st.markdown(
+    """
+    Ask questions about the content of a website.
+    """)
     if ".xml" not in url:
         with st.sidebar:
             st.error("Please write sitemap URL")
@@ -259,14 +286,25 @@ if url:
         # Restore memory and paint the history of previous chat
         restore_memory()
         paint_history()
-        query=st.chat_input("Ask a question to the website")
+        query=st.chat_input("Ask a question about the website.")
         if query:
             send_message(query, "human")
             chain = ({"docs": retriever, "chat_history": load_memory, "question": RunnablePassthrough(),} | RunnableLambda(get_answers) | RunnableLambda(choose_answer)
                      )
+            isSimilar = get_similar_answer(query)
             with st.chat_message("ai"):
-                invoke_chain(query)
+                if isSimilar:
+                    isSimilar
+                else:    
+                    invoke_chain(query)
 else:
     # When there is no url(like in the beginning), initialize the session with a blank list
+    st.markdown(
+    """
+    Ask questions about the content of a website.
+
+    Start by writing the URL of the website on the sidebar.
+
+    """)
     st.session_state["messages"] = []
-    st.session_state["chat_history"] =[]
+    st.session_state["chat_history"] = []
