@@ -7,7 +7,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
-from langchain.memory import ConversationSummaryBufferMemory
+from langchain.memory import ConversationBufferMemory
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import CountVectorizer
 import streamlit as st
@@ -37,7 +37,7 @@ class ChatCallbackHandler(BaseCallbackHandler):
         # each message appened will be shown to the message box
         self.message_box.markdown(self.message)
 
-# Create an LLM
+# Create llms for answers and choice
 answers_llm = ChatOpenAI(
     temperature=0.1,
 )
@@ -50,7 +50,7 @@ choice_llm = ChatOpenAI(
 )
 
 # Create a memory
-memory = ConversationSummaryBufferMemory(
+memory = ConversationBufferMemory(
     llm=choice_llm,
     max_token_limit=120,
     memory_key="chat_history",
@@ -162,8 +162,8 @@ def parse_page(soup):
     if footer:
         footer.decompose()
     text = str(soup.get_text()).replace(
-        "\n", " ").replace("\xa0", " ").replace("CloseSearch Submit Blog", "")
-    result = re.sub(regex, "", text)
+        "\n", " ").replace("\xa0", " ").replace("CloseSearch Submit Blog", " ")
+    result = re.sub(regex, " ", text)
     return result
 
 
@@ -233,7 +233,6 @@ def paint_history():
 def restore_memory():
     for history in st.session_state["chat_history"]:
         memory.save_context({"input": history["input"]}, {"output": history["output"]})
-        st.write(memory.load_memory_variables({}))
         
 def load_memory(input):
     return memory.load_memory_variables({})["chat_history"]
@@ -242,7 +241,7 @@ def invoke_chain(message):
     # invoke the chain
     result = chain.invoke(message)
     # save the interaction in the memory
-    save_memory(message, result.content.replace("$", "\$"))
+    save_memory(message, result.content)
 # Function to calculate similarity between two queries
 def calculate_similarity(new_question, memory_question):
     # Tokenize the sentences
@@ -264,13 +263,13 @@ def get_similar_answer(user_query):
     max_similarity = -1.0
     # Load memory variables
     chat_history = memory.load_memory_variables({})["chat_history"]
-    st.write(chat_history)
     # Iterate memory to find the most similar query to the user input
     stored_queries = [query.content for idx, query in enumerate(chat_history) if idx%2 == 0 or idx == 0]
     stored_answers = [answer.content for idx, answer in enumerate(chat_history) if idx%2 != 0]
     for stored_entry in zip(stored_queries, stored_answers):
         stored_query = stored_entry[0]
         stored_answer = stored_entry[1]
+        #  Update max similarity and most similar question
         if stored_query is not None and stored_answer is not None:
             similarity = calculate_similarity(user_query, stored_query)
         if similarity > max_similarity: 
@@ -278,7 +277,7 @@ def get_similar_answer(user_query):
             most_similar_question = stored_query
             most_similar_answer = stored_answer
     # Check for a valid similar question and similarity threshold
-    if most_similar_question and max_similarity > 0.7:
+    if most_similar_question and max_similarity > 0.8:
         return most_similar_answer
     return None
     
@@ -310,6 +309,9 @@ if url:
             with st.chat_message("ai"):
                 if similar_answer:
                     similar_answer
+                    # Invoking chain saves the message and memory but similar answer has to be manually saved
+                    save_memory(query, similar_answer)
+                    save_message(similar_answer, 'ai')
                 else:    
                     invoke_chain(query)
 else:
