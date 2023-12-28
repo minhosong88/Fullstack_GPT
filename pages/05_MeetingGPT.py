@@ -5,6 +5,15 @@ import math
 import glob
 import openai
 import os
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import StrOutputParser
+
+llm = ChatOpenAI(
+    temperature=0.1,
+)
 
 # Not to create the same transcript again when there is one.
 has_transcript = os.path.exists("./.cache/podcast.txt")
@@ -72,7 +81,7 @@ with st.sidebar:
 
 if video:
     chunks_folder = "./.cache/chunks"
-    with st.status("Loading video..."):
+    with st.status("Loading video...") as status:
         video_content = video.read()
         video_path = f"./.cache/{video.name}"
         audio_path = video_path.replace("mp4", "mp3")
@@ -80,9 +89,68 @@ if video:
         # Open the file from the path as writing binary mode
         with open(video_path, "wb") as f:
             f.write(video_content)
-    with st.status("Extracting audio..."):
+        status.update(label="Extracting audio...")
         extract_audio_from_video(video_path)
-    with st.status("Cutting audio segments..."):
+        status.update(label="Cutting audio segments...")
         cut_audio_in_chunks(audio_path, 10, chunks_folder)
-    with st.status("Transcribing audio..."):
-        transcribe_chunks(chunks_folder, )
+        status.update(label="Transcribing audio...")
+        transcribe_chunks(chunks_folder, transcript_path)
+
+    transcript_tab, summary_tab, qa_tab = st.tabs(
+        [
+            "Transcrript",
+            "Summary",
+            "Q&A",
+        ]
+    )
+
+    with transcript_tab:
+        with open(transcript_path, "r") as file:
+            st.write(file.read())
+    with summary_tab:
+        generate = st.button("Generate summary")
+
+        if generate:
+            loader = TextLoader(transcript_path)
+            splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+                chunk_size=800,
+                chunk_overlap=100,
+            )
+            docs = loader.load_and_split(text_splitter=splitter)
+            
+            first_summary_prompt = ChatPromptTemplate.from_template(
+                """
+                Write a concise summary of the following:
+                "{text}"
+                CONCISE SUMMARY:
+                """
+            )
+            first_summary_chain = first_summary_prompt|llm|StrOutputParser()
+            
+            summary = first_summary_chain.invoke({
+                "text":docs[0].page_content
+            })
+
+            refine_prompt = ChatPromptTemplate.from_template(
+                """
+                Your job is to produce a final summary.
+                We have provided an existing summary up to a certain point:{existing_summary}
+                We have the opportunity to refine the existing summary(Only if needed) with some more context below.
+                -------------------
+                {context}
+                -------------------
+                Given the new context, refine the original summary.
+                If the context isn't useful, RETURN the original summary
+                """
+            )
+            
+            refine_chain =  refine_prompt|llm|StrOutputParser()
+            with st.status("Summarizing...") as status:
+                for idx, doc in enumerate(docs[1:]):
+                    status.update(label=f"Processing document # {idx+1} / {len(docs[1:])}")
+                    # Keep updating summary based on the previous summary
+                    summary = refine_chain.invoke({
+                        "existing_summary": summary,
+                        "context": doc.page_content,
+                    })
+            st.write(summary)
